@@ -130,10 +130,11 @@ def text_summarizer_ui():
 
 
 def call_text_summarizer():
-    if st.button('Submit'):
-        # Call the UI function and store the return values in variables
-        model, num_beams, no_repeat_ngram_size, length_penalty, min_length, max_length, early_stopping, text = text_summarizer_ui()
 
+    # Call the UI function and store the return values in variables
+    model, num_beams, no_repeat_ngram_size, length_penalty, min_length, max_length, early_stopping, text = text_summarizer_ui()
+
+    if st.button('Submit'):
         # Call your text summarizer function with the UI parameters as arguments
         summary = run_model(model, num_beams, no_repeat_ngram_size,
                             length_penalty, min_length, max_length, early_stopping, text)
