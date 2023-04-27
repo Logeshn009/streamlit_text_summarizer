@@ -1,13 +1,20 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from passlib.context import CryptContext
+from fastapi import FastAPI, HTTPException, Depends, status
+from datetime import timedelta
+from fastapi.responses import JSONResponse
+import streamlit_authenticator as stauth
 from db_connection import db
 from pydantic import BaseModel
 import streamlit as st
 import requests
 import uuid
-import time
-
+import json
+from fastapi.middleware.cors import CORSMiddleware
+import jwt
+from datetime import datetime, timedelta
+import navbar
 
 # mongo collection
 users_collection = db['researcher_details']
@@ -18,6 +25,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__default_rounds=12)
 # Set up FastAPI
 christograph = FastAPI()
 
+# secret key
+SECRET_KEY = "Asdfgf009***"
+
 # Define user model
 
 
@@ -25,19 +35,10 @@ class User(BaseModel):
     researcher_name: str
     institution: str
     published_papers: int
-    # areas_of_interest: list
     email: str
     username: str
     password: str
 
-
-class ReseacherPaper(BaseModel):
-    researcher_id: str
-    researcher_paper_id: str
-    research_paper_name: str
-    total_no_of_pages: int
-    research_domain: str
-    areas_of_interest: list
 
 # Get custom areas of interest from the user
 
@@ -110,19 +111,43 @@ security = HTTPBasic()
 @christograph.post("/christograph/login")
 async def login(credentials: HTTPBasicCredentials):
     # Find the user by username
-    user_login = users_collection.find_one({"username": credentials.username})
+    user_login = users_collection.find_one(
+        {"username": credentials.username})
+    # full_name = users_collection.find_one({"full_name": user.researcher_name})
     if not user_login:
-        raise HTTPException(status_code=401, detail="Invalid username")
+        raise HTTPException(
+            status_code=401, detail="Invalid username of researcher name")
+    hashed = user_login["password"]
     # Verify the password hash
-    if not pwd_context.verify(credentials.password, user_login["password"]):
+    if not pwd_context.verify(credentials.password, hashed):
         raise HTTPException(
             status_code=401, detail="Invalid username or password")
-    return {"message": "Login successful"}
+
+    # Create JWT token with user data
+    # access_token_expires = timedelta(minutes=10)
+    # access_token = create_access_token(
+    #     data={"sub": user_login["username"]},
+    #     expires_delta=access_token_expires
+    # )
+    # response.set_cookie(key="Authorization",
+    #                     value=f"Bearer {access_token}", httponly=True)
+    return {"message": "login successful"}
 
 
+# def create_access_token(data: dict, expires_delta: timedelta):
+#     to_encode = data.copy()
+#     if expires_delta:
+#         expire = datetime.utcnow() + expires_delta
+#     else:
+#         expire = datetime.utcnow() + timedelta(minutes=15)
+#     to_encode.update({"exp": expire})
+#     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
+#     return encoded_jwt
 # Streamlit UI
-def register_ui():
 
+
+def register_ui():
+    st.title("Create an Account")
     full_name = st.text_input("Enter your full name", key="full_name")
     institution = st.text_input(
         "Enter your institution name", key="institution_name")
@@ -134,9 +159,9 @@ def register_ui():
     if st.button('Register'):
         user = User(researcher_name=full_name, institution=institution,
                     published_papers=published_papers, username=username, password=password, email=email)
-        response = requests.post(
+        requests.post(
             'http://localhost:8000/christograph/register', json=user.dict())
-        st.write(response.json())
+        st.write("Account created successfully")
 
 
 def login_ui():
@@ -148,23 +173,88 @@ def login_ui():
         'Enter Username', value=st.session_state["username"], key="login_username")
     password = st.text_input(
         'Enter Password', key='login_password', type='password')
+
     button = st.button("Login")
     if button:
         st.session_state["username"] = username
+        credentials = {'usernames': username, 'password': password}
         requests.post(
-            'http://localhost:8000/christograph/login', json={'username': username, 'password': password})
-        st.write("Welcome ", username)
-        # st.write(response.json())
-
-        # progress_text = "Signing in... Please wait."
-        # my_bar = st.progress(0, text=progress_text)
-
-        # for percent_complete in range(100):
-        #     time.sleep(0.01)
-        #     my_bar.progress(percent_complete + 1, text=progress_text)
-        return True
+            'http://localhost:8000/christograph/login', json=credentials)
+        print("responsed")
 
 
+def new_login():
+
+    pipeline = [
+        {
+            "$match": {}
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "username": {
+                    "email": "$email",
+                    "name": "$full_name",
+                    "password": "$password",
+                    "username": "$username"
+                }
+            }
+        }
+    ]
+
+    result = users_collection.aggregate(pipeline=pipeline)
+
+    data = {"credentials": {"usernames": {}}}
+
+    for doc in result:
+        username = doc["username"]["username"]
+        email = doc["username"]["email"]
+        name = doc["username"]["name"]
+        password = doc["username"]["password"]
+        data["credentials"]["usernames"][username] = {
+            "email": email, "name": name, "password": password}
+    data_credentials = data["credentials"]
+    # st.write(data_credentials)
+
+    config = {
+        "credentials":
+            data_credentials,
+        "cookie": {
+            "expiry_days": 1,
+            "key": "christograph_key",
+            "name": "christograph_cookie"
+        },
+        "preauthorized": {
+            "emails": [
+                "logeshn1297@gmail.com"
+            ]
+        }
+    }
+    # st.write(config)
+
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days'],
+        config['preauthorized']
+    )
+    if "user_name" not in st.session_state:
+        st.session_state["user_name"] = ""
+
+    name, authentication_status, username = authenticator.login(
+        'Login', 'main')
+    if authentication_status:
+        st.session_state["user_name"] = username
+        authenticator.logout('Logout', 'sidebar')
+        st.subheader(f'Welcome *{username}*')
+        navbar.main()
+    elif authentication_status is False:
+        st.error('Username/password is incorrect')
+    elif authentication_status is None:
+        st.warning('Please enter your username and password')
+
+# new_login()
 # def main():
 #     st.title('User Authentication')
 #     # Create a sidebar with a dropdown for user actions
@@ -178,5 +268,5 @@ def login_ui():
 #         login_ui()
 
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    new_login()

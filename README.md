@@ -10,8 +10,11 @@ Christograph aims to provide a solution for researchers to build links to form a
 
 1. streamlit
 2. MongoDB
+3. Python
 
 ## Packages
+1. BartTokenizer, BartForConditionalGeneration
+2. T5Tokenizer, T5ForConditionalGeneration
 
 ## Set theme color using:-
 
